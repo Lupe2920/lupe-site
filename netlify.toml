@@ -1,5 +1,7 @@
 [build]
   functions = "netlify/functions"
+  command = "cd netlify/functions && npm install && cd ../.."
+  publish = "."
 
 [[headers]]
   for = "/*"
