@@ -2,6 +2,9 @@
   functions = "netlify/functions"
   command = "cd netlify/functions && npm install && cd ../.."
 
+[build.environment]
+  STRIPE_SECRET_KEY = "sk_test_51TUFzeRq0XCTLGq5I76qC6v3WVj5Yy6dp14xkHUcAYWttXcpaikR46pKkGVV23Q0gGaeafBNKfHhqgzN5ZR9e75T00xmjW94yd"
+
 [[headers]]
   for = "/*"
   [headers.values]
