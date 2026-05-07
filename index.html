@@ -1395,7 +1395,7 @@ function applyPromo() {
 function initStripe() {
   if (stripeInited) return;
   try {
-    stripe = Stripe('pk_live_51TMfXoQsUQRJB9pFVpL7u61tGqlHKOoDReimzIlbzHQmSB5ms1TKAkbnZuGuXyaNKXGeTzdWV5YlTdtpbCMK4xHS00HGcvcQZ3');
+    stripe = Stripe('pk_test_51TUCuhL8ag1jIfRbZSOJzV5BrTWlpe1oRuqNKXV2ItIyca9eUnPqntwUrXMUljreGz7IeIOkGyqRqAGfjehMLqP400wNshNgaO');
     elements = stripe.elements();
     cardEl = elements.create('card', {
       style: {
