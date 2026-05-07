@@ -792,12 +792,10 @@ body{font-family:'Inter',sans-serif;background:var(--fog);color:var(--ink);overf
           Collected at checkout and fully refunded within 7 days of check-out, provided the property is left in good condition.
         </div>
         <div class="stripe-wrap">
-          <div style="padding:18px 20px 10px">
-            <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">Secure Payment</p>
-            <p style="margin:0;font-size:14px;color:var(--muted);line-height:1.6">Clicking below takes you to Stripe's secure payment page. Your card details are processed entirely by Stripe — we never see or store them.</p>
-          </div>
-          <div id="card-err" style="color:var(--ember);font-size:13px;padding:0 20px 10px;display:none"></div>
-          <div class="stripe-secure">🔒 Powered by Stripe · 256-bit SSL · PCI Compliant</div>
+          <div class="stripe-head">Card details</div>
+          <div id="card-el"></div>
+          <div id="card-err" style="color:var(--ember);font-size:12px;padding:0 16px 8px;display:none"></div>
+          <div class="stripe-secure">🔒 Secured by Stripe · 256-bit SSL · PCI Compliant</div>
         </div>
         <button class="btn-pay" id="pay-btn" onclick="doPay()">
           <span id="pay-btn-text">🔒 Pay deposit now</span>
@@ -1395,8 +1393,22 @@ function applyPromo() {
 }
 
 function initStripe() {
-  // Using Stripe Checkout — no card element needed in browser
-  stripeInited = true;
+  if (stripeInited) return;
+    stripe = Stripe('pk_test_51TUFzeRq0XCTLGq5yFm7224pFyowU9ozSTTKhxPckvjY0t5QcKzsMS2XB6VQxFGTRDGRNSV01iWKpO6hto6jLcsd00WSMXFowT');
+    elements = stripe.elements();
+    cardEl = elements.create('card', {
+      style: { base: { fontFamily:"'Inter',sans-serif", fontSize:'15px', color:'#0F1923', '::placeholder':{ color:'#8A8278' } }, invalid: { color:'#C0392B' } },
+      hidePostalCode: true
+    });
+    cardEl.mount('#card-el');
+    cardEl.on('change', e => {
+      const err = document.getElementById('card-err');
+      err.textContent = e.error ? e.error.message : '';
+      err.style.display = e.error ? 'block' : 'none';
+    });
+    stripeInited = true;
+  } catch(e) { console.log('Stripe init error:', e); }
+}
 }
 
 // No backend server needed — using Stripe Payment Links
@@ -1418,7 +1430,7 @@ async function doPay() {
     const email = document.getElementById('bm-email').value;
     const ref = document.getElementById('suc-ref') ? document.getElementById('suc-ref').textContent : 'LUPE-' + Math.random().toString(36).substr(2,6).toUpperCase();
 
-    const res = await fetch('/.netlify/functions/pay', {
+    const res = await fetch('https://lupe-server.onrender.com/create-payment-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1448,22 +1460,17 @@ async function doPay() {
       throw new Error(errData.error || 'Payment setup failed. Please try WhatsApp below.');
     }
 
-    const { url, error: checkoutErr } = await res.json();
-    if (checkoutErr) throw new Error(checkoutErr);
+    const { clientSecret, error: intentErr } = await res.json();
+    if (intentErr) throw new Error(intentErr);
 
-    // Save booking details before redirecting to Stripe
-    sessionStorage.setItem('lupe_booking', JSON.stringify({
-      prop: S.prop, cin: S.cin, cout: S.cout,
-      guests: S.guests, nights: S.nights,
-      total: S.total, deposit: S.deposit, balance: S.balance,
-      fname, lname, email,
-      phone: document.getElementById('bm-phone').value,
-      requests: document.getElementById('bm-requests').value,
-      ref
-    }));
-
-    // Redirect to Stripe hosted checkout
-    window.location.href = url;
+    const result = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: {
+        card: cardEl,
+        billing_details: { name: fname + ' ' + lname, email: email }
+      }
+    });
+    if (result.error) throw result.error;
+    showSuccess();
 
   } catch(err) {
     errEl.textContent = err.message;
