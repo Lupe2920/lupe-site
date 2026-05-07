@@ -4,18 +4,23 @@ exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET'
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
 
+  // Debug endpoint - shows what env vars are available
   if (event.httpMethod === 'GET') {
-    return { 
-      statusCode: 200, 
+    return {
+      statusCode: 200,
       headers,
-      body: JSON.stringify({ status: 'ok', keyLoaded: !!process.env.STRIPE_SECRET_KEY }) 
+      body: JSON.stringify({
+        hasKey: !!process.env.STRIPE_SECRET_KEY,
+        keyStart: process.env.STRIPE_SECRET_KEY ? process.env.STRIPE_SECRET_KEY.substring(0, 12) + '...' : 'NOT FOUND',
+        allEnvKeys: Object.keys(process.env).filter(k => k.includes('STRIPE'))
+      })
     };
   }
 
@@ -26,33 +31,24 @@ exports.handler = async (event) => {
   try {
     const { amount, currency, metadata, success_url, cancel_url } = JSON.parse(event.body);
 
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Stripe key not configured on server' })
-      };
-    }
-
-    // Create Stripe Checkout Session — fully hosted by Stripe, no card element needed
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
           currency: currency || 'aud',
           product_data: {
-            name: metadata.property || 'Lupe Accommodations Deposit',
-            description: `Check-in: ${metadata.checkin} | Check-out: ${metadata.checkout} | Guests: ${metadata.guests}`
+            name: (metadata && metadata.property) || 'Lupe Accommodations Deposit',
+            description: metadata ? `Check-in: ${metadata.checkin} | Check-out: ${metadata.checkout} | Guests: ${metadata.guests}` : ''
           },
           unit_amount: Math.round(amount * 100),
         },
         quantity: 1,
       }],
       mode: 'payment',
-      customer_email: metadata.email,
-      metadata: metadata,
+      customer_email: metadata && metadata.email,
+      metadata: metadata || {},
       success_url: success_url || 'https://teal-brigadeiros-3a5674.netlify.app/?booking=success',
-      cancel_url: cancel_url || 'https://teal-brigadeiros-3a5674.netlify.app/?booking=cancelled',
+      cancel_url: cancel_url || 'https://teal-brigadeiros-3a5674.netlify.app/',
     });
 
     return {
