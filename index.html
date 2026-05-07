@@ -792,10 +792,12 @@ body{font-family:'Inter',sans-serif;background:var(--fog);color:var(--ink);overf
           Collected at checkout and fully refunded within 7 days of check-out, provided the property is left in good condition.
         </div>
         <div class="stripe-wrap">
-          <div class="stripe-head">Card details</div>
-          <div id="card-el"></div>
-          <div id="card-err" style="color:var(--ember);font-size:12px;padding:0 16px 8px;display:none"></div>
-          <div class="stripe-secure">🔒 Secured by Stripe · 256-bit SSL · PCI Compliant</div>
+          <div style="padding:18px 20px 10px">
+            <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">Secure Payment</p>
+            <p style="margin:0;font-size:14px;color:var(--muted);line-height:1.6">Clicking below takes you to Stripe's secure payment page. Your card details are processed entirely by Stripe — we never see or store them.</p>
+          </div>
+          <div id="card-err" style="color:var(--ember);font-size:13px;padding:0 20px 10px;display:none"></div>
+          <div class="stripe-secure">🔒 Powered by Stripe · 256-bit SSL · PCI Compliant</div>
         </div>
         <button class="btn-pay" id="pay-btn" onclick="doPay()">
           <span id="pay-btn-text">🔒 Pay deposit now</span>
@@ -1393,25 +1395,8 @@ function applyPromo() {
 }
 
 function initStripe() {
-  if (stripeInited) return;
-  try {
-    stripe = Stripe('pk_test_51TUFzeRq0XCTLGq5yFm7224pFyowU9ozSTTKhxPckvjY0t5QcKzsMS2XB6VQxFGTRDGRNSV01iWKpO6hto6jLcsd00WSMXFowT');
-    elements = stripe.elements();
-    cardEl = elements.create('card', {
-      style: {
-        base: { fontFamily:"'Inter',sans-serif", fontSize:'15px', color:'#0F1923', '::placeholder':{ color:'#8A8278' } },
-        invalid: { color:'#C0392B' }
-      },
-      hidePostalCode: true
-    });
-    cardEl.mount('#card-el');
-    cardEl.on('change', e => {
-      const err = document.getElementById('card-err');
-      err.textContent = e.error ? e.error.message : '';
-      err.style.display = e.error ? 'block' : 'none';
-    });
-    stripeInited = true;
-  } catch(e) { console.log('Stripe init error:', e); }
+  // Using Stripe Checkout — no card element needed in browser
+  stripeInited = true;
 }
 
 // No backend server needed — using Stripe Payment Links
@@ -1425,28 +1410,35 @@ async function doPay() {
   btn.disabled = true;
   errEl.style.display = 'none';
   document.getElementById('loading').classList.add('show');
-  document.querySelector('.loading-text').textContent = 'Processing payment…';
+  document.querySelector('.loading-text').textContent = 'Preparing secure checkout…';
 
   try {
-    // Call Netlify serverless function — always on, never sleeps
+    const fname = document.getElementById('bm-fname').value;
+    const lname = document.getElementById('bm-lname').value;
+    const email = document.getElementById('bm-email').value;
+    const ref = document.getElementById('suc-ref') ? document.getElementById('suc-ref').textContent : 'LUPE-' + Math.random().toString(36).substr(2,6).toUpperCase();
+
     const res = await fetch('/.netlify/functions/pay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         amount: S.deposit,
         currency: 'aud',
+        success_url: window.location.origin + '/?booking=success&ref=' + ref,
+        cancel_url: window.location.origin + '/?booking=cancelled',
         metadata: {
-          property: S.prop,
+          property: NAMES[S.prop],
           checkin: S.cin,
           checkout: S.cout,
           guests: String(S.guests),
           total: String(S.total),
           deposit: String(S.deposit),
           balance: String(S.balance),
-          name: document.getElementById('bm-fname').value + ' ' + document.getElementById('bm-lname').value,
-          email: document.getElementById('bm-email').value,
+          name: fname + ' ' + lname,
+          email: email,
           phone: document.getElementById('bm-phone').value,
-          requests: document.getElementById('bm-requests').value || 'None'
+          requests: document.getElementById('bm-requests').value || 'None',
+          booking_ref: ref
         }
       })
     });
@@ -1456,30 +1448,28 @@ async function doPay() {
       throw new Error(errData.error || 'Payment setup failed. Please try WhatsApp below.');
     }
 
-    const { clientSecret, error: intentErr } = await res.json();
-    if (intentErr) throw new Error(intentErr);
+    const { url, error: checkoutErr } = await res.json();
+    if (checkoutErr) throw new Error(checkoutErr);
 
-    // Confirm payment with Stripe
-    const result = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: {
-        card: cardEl,
-        billing_details: {
-          name: document.getElementById('bm-fname').value + ' ' + document.getElementById('bm-lname').value,
-          email: document.getElementById('bm-email').value
-        }
-      }
-    });
+    // Save booking details before redirecting to Stripe
+    sessionStorage.setItem('lupe_booking', JSON.stringify({
+      prop: S.prop, cin: S.cin, cout: S.cout,
+      guests: S.guests, nights: S.nights,
+      total: S.total, deposit: S.deposit, balance: S.balance,
+      fname, lname, email,
+      phone: document.getElementById('bm-phone').value,
+      requests: document.getElementById('bm-requests').value,
+      ref
+    }));
 
-    if (result.error) throw result.error;
-    showSuccess();
+    // Redirect to Stripe hosted checkout
+    window.location.href = url;
 
   } catch(err) {
     errEl.textContent = err.message;
     errEl.style.display = 'block';
     btn.disabled = false;
-  } finally {
     document.getElementById('loading').classList.remove('show');
-    document.querySelector('.loading-text').textContent = 'Processing payment…';
   }
 }
 
@@ -1594,6 +1584,67 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeLightbox()
 
 // Init EmailJS
 emailjs.init("kmMmwZoCdFN4gKhH9");
+
+// Handle return from Stripe Checkout
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('booking') === 'success') {
+    const saved = sessionStorage.getItem('lupe_booking');
+    if (saved) {
+      const b = JSON.parse(saved);
+      Object.assign(S, {
+        prop: b.prop, cin: b.cin, cout: b.cout,
+        guests: b.guests, nights: b.nights,
+        total: b.total, deposit: b.deposit, balance: b.balance,
+        cancellationText: b.cancellationText || '', fullPayNow: b.balance == 0
+      });
+      setTimeout(() => {
+        document.getElementById('booking-modal').style.display = 'flex';
+        document.getElementById('bm-sheet').classList.add('in');
+        document.body.style.overflow = 'hidden';
+        document.getElementById('bm-fname').value = b.fname || '';
+        document.getElementById('bm-lname').value = b.lname || '';
+        document.getElementById('bm-email').value = b.email || '';
+        document.getElementById('bm-phone').value = b.phone || '';
+        document.getElementById('bm-requests').value = b.requests || '';
+        document.getElementById('suc-ref').textContent = b.ref || ('LUPE-' + Math.random().toString(36).substr(2,6).toUpperCase());
+        showSuccess();
+        sessionStorage.removeItem('lupe_booking');
+        history.replaceState({}, '', '/');
+      }, 600);
+    }
+  }
+})();
+
+// Handle return from Stripe Checkout
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('booking') === 'success') {
+    const saved = sessionStorage.getItem('lupe_booking');
+    if (saved) {
+      const b = JSON.parse(saved);
+      Object.assign(S, {
+        prop: b.prop, cin: b.cin, cout: b.cout,
+        guests: b.guests, nights: b.nights,
+        total: b.total, deposit: b.deposit, balance: b.balance,
+        cancellationText: b.cancellationText || ''
+      });
+      setTimeout(() => {
+        document.getElementById('booking-modal').style.display = 'flex';
+        document.getElementById('bm-sheet').classList.add('in');
+        document.body.style.overflow = 'hidden';
+        document.getElementById('bm-fname').value = b.fname || '';
+        document.getElementById('bm-lname').value = b.lname || '';
+        document.getElementById('bm-email').value = b.email || '';
+        document.getElementById('bm-phone').value = b.phone || '';
+        document.getElementById('bm-requests').value = b.requests || '';
+        document.getElementById('suc-ref').textContent = b.ref || ('LUPE-' + Math.random().toString(36).substr(2,6).toUpperCase());
+        showSuccess();
+        sessionStorage.removeItem('lupe_booking');
+      }, 500);
+    }
+  }
+})();
 
 // Init calendars on load
 calViewMonth = new Date(); calViewMonth.setDate(1);
